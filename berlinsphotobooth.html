@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950 text-slate-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StudioSnap - Photobooth Suite</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Plus Jakarta Sans', 'sans-serif'],
+                        mono: ['Space Grotesk', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                            900: '#312e81',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 9999px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+        .filter-normal { filter: none; }
+        .filter-sepia { filter: sepia(0.85) contrast(1.1) brightness(0.95); }
+        .filter-grayscale { filter: grayscale(1) contrast(1.2) brightness(1.05); }
+        .filter-vintage { filter: sepia(0.35) contrast(1.15) saturate(1.3) hue-rotate(-10deg); }
+        .filter-cyberpunk { filter: saturate(2.2) hue-rotate(190deg) contrast(1.25); }
+        .filter-soft { filter: brightness(1.1) contrast(0.9) saturate(1.15) blur(0.3px); }
+        .filter-invert { filter: invert(1); }
+        .filter-warm { filter: saturate(1.4) sepia(0.2) brightness(1.05); }
+        .filter-cool { filter: hue-rotate(30deg) saturate(1.2) brightness(1.02); }
+
+        @keyframes flashAnim {
+            0% { opacity: 0.95; }
+            100% { opacity: 0; }
+        }
+        .animate-flash {
+            animation: flashAnim 0.4s ease-out forwards;
+        }
+
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+    </style>
+</head>
+<body class="h-full font-sans antialiased bg-slate-950 text-slate-100 flex flex-col overflow-x-hidden">
+
+    <!-- HEADER (Nakatago na ang folder location status) -->
+    <header class="h-16 border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-0 z-40 px-4 lg:px-8 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-400 flex items-center justify-center shadow-lg shadow-brand-500/20">
+                <i class="fa-solid font-bold fa-camera-retro text-xl text-white"></i>
+            </div>
+            <div>
+                <h1 class="text-lg font-bold font-mono tracking-tight leading-none bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">StudioSnap Pro</h1>
+                <p class="text-[11px] text-slate-400 font-medium">DSLR & Web Virtual Capture Suite</p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <!-- Hidden target folder selection button for config -->
+            <button id="selectFolderBtn" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-200 transition-all" title="Select Output Folder">
+                <i class="fa-solid fa-folder-open text-amber-400"></i>
+            </button>
+
+            <div id="cameraStatusBadge" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/80 border border-slate-700/60 text-xs font-medium text-slate-400">
+                <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse" id="statusDot"></span>
+                <span id="statusText">Initializing Camera...</span>
+            </div>
+
+            <select id="cameraSelect" class="bg-slate-800 text-xs text-slate-200 border border-slate-700 rounded-lg px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-brand-500 hidden sm:block max-w-[180px]">
+                <option value="">Detecting Devices...</option>
+            </select>
+        </div>
+    </header>
+
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        
+        <!-- LEFT COLUMN: CAMERA -->
+        <section class="lg:col-span-7 flex flex-col gap-4">
+            <div class="relative w-full aspect-[4/3] bg-slate-900 rounded-2xl border border-slate-800/80 overflow-hidden shadow-2xl flex items-center justify-center group">
+                <video id="videoElement" autoplay playsinline muted class="w-full h-full object-cover filter-normal transition-all duration-300"></video>
+                
+                <div id="countdownOverlay" class="absolute inset-0 flex flex-col items-center justify-center bg-black/50 backdrop-blur-xs hidden pointer-events-none z-20 p-4 text-center">
+                    <span id="countdownStatusText" class="text-xl md:text-2xl font-bold font-mono text-brand-300 mb-2 tracking-wide uppercase drop-shadow-md">Get ready! We will take a capture now!</span>
+                    <span id="countdownNumber" class="text-9xl font-mono font-extrabold text-white drop-shadow-[0_10px_20px_rgba(0,0,0,0.8)] scale-125 transition-all">3</span>
+                </div>
+
+                <div id="flashLayer" class="absolute inset-0 bg-white opacity-0 pointer-events-none z-30"></div>
+
+                <div id="cameraPlaceholder" class="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 p-6 text-center z-10">
+                    <div class="w-16 h-16 rounded-2xl bg-slate-800 flex items-center justify-center mb-4 text-slate-500">
+                        <i class="fa-solid fa-video-slash text-2xl"></i>
+                    </div>
+                    <h3 class="text-base font-semibold text-slate-200">Camera Access Required</h3>
+                    <p class="text-xs text-slate-400 max-w-xs mt-1 mb-4">Allow browser camera permissions or plug in your DSLR virtual input to start capture.</p>
+                    <button id="requestCamBtn" class="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold transition-all">
+                        Enable Camera
+                    </button>
+                </div>
+
+                <div class="absolute inset-4 border border-white/10 rounded-xl pointer-events-none flex flex-col justify-between p-3 opacity-60 group-hover:opacity-100 transition-opacity">
+                    <div class="flex justify-between text-[10px] font-mono text-slate-400">
+                        <span>LIVE 4:3 FEED</span>
+                        <span id="resolutionIndicator">1280x720</span>
+                    </div>
+                    <div class="flex justify-between text-[10px] font-mono text-slate-400">
+                        <span>AUTO-EXPOSURE: ON</span>
+                        <span id="stripProgressText">0 / 3 SHOTS</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-panel p-4 rounded-2xl flex items-center justify-between gap-4">
+                <button id="mirrorToggleBtn" class="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center gap-2 border border-slate-700/60 transition-all">
+                    <i class="fa-solid fa-right-left"></i>
+                    <span class="hidden sm:inline">Flip Mirror</span>
+                </button>
+
+                <button id="startCaptureBtn" class="flex-1 max-w-xs py-3.5 px-6 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-brand-600/30 active:scale-95 transition-all flex items-center justify-center gap-3">
+                    <i class="fa-solid fa-camera text-lg"></i>
+                    <span>Start Sequence</span>
+                </button>
+
+                <button id="resetSessionBtn" class="p-2.5 rounded-xl bg-slate-800 hover:bg-rose-950/40 hover:text-rose-400 text-slate-400 text-xs font-semibold border border-slate-700/60 transition-all" title="Clear current photos">
+                    <i class="fa-solid fa-rotate-left"></i>
+                </button>
+            </div>
+        </section>
+
+        <!-- RIGHT COLUMN: CONTROL PANEL -->
+        <section class="lg:col-span-5 flex flex-col gap-6">
+            <div class="glass-panel p-5 rounded-2xl border border-slate-800 flex flex-col gap-5">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <h2 class="text-sm font-bold font-mono uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                        <i class="fa-solid fa-sliders text-brand-500"></i> Booth Configuration
+                    </h2>
+                </div>
+
+                <!-- Timer Selector -->
+                <div class="space-y-2">
+                    <label class="text-xs font-semibold text-slate-400 block">Countdown Delay</label>
+                    <div class="grid grid-cols-3 gap-2" id="timerSelector">
+                        <button data-timer="3" class="timer-btn active p-2 rounded-lg bg-slate-800 border-2 border-brand-500 text-xs font-medium text-slate-200">3 Seconds</button>
+                        <button data-timer="5" class="timer-btn p-2 rounded-lg bg-slate-800/60 border border-slate-700 text-xs font-medium text-slate-300">5 Seconds</button>
+                        <button data-timer="10" class="timer-btn p-2 rounded-lg bg-slate-800/60 border border-slate-700 text-xs font-medium text-slate-300">10 Seconds</button>
+                    </div>
+                </div>
+
+                <!-- Layout Selector -->
+                <div class="space-y-2">
+                    <label class="text-xs font-semibold text-slate-400 block">Photobooth Layout</label>
+                    <div class="grid grid-cols-3 gap-2" id="layoutSelector">
+                        <button data-layout="single" class="layout-btn p-3 rounded-xl bg-slate-800/60 border border-slate-700/60 flex flex-col items-center gap-1.5 hover:bg-slate-750 transition-all">
+                            <i class="fa-solid fa-square text-lg text-slate-400"></i>
+                            <span class="text-[11px] font-semibold">Single Shot</span>
+                        </button>
+                        <button data-layout="strip-3" class="layout-btn active p-3 rounded-xl bg-slate-800 border-2 border-brand-500 flex flex-col items-center gap-1.5 hover:bg-slate-750 transition-all">
+                            <i class="fa-solid fa-bars text-lg text-brand-400"></i>
+                            <span class="text-[11px] font-semibold">3-Photo Strip</span>
+                        </button>
+                        <button data-layout="grid-4" class="layout-btn p-3 rounded-xl bg-slate-800/60 border border-slate-700/60 flex flex-col items-center gap-1.5 hover:bg-slate-750 transition-all">
+                            <i class="fa-solid fa-border-all text-lg text-slate-400"></i>
+                            <span class="text-[11px] font-semibold">2x2 Quad Grid</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Filter Selector -->
+                <div class="space-y-2">
+                    <label class="text-xs font-semibold text-slate-400 block">Live Filter Preset</label>
+                    <div class="grid grid-cols-3 gap-2" id="filterSelector">
+                        <button data-filter="filter-normal" class="filter-btn active p-2 rounded-lg bg-slate-800 border-2 border-brand-500 text-xs font-medium text-slate-200">Normal</button>
+                        <button data-filter="filter-sepia" class="filter-btn p-2 rounded-lg bg-slate-800/60 border border-slate-700 text-xs font-medium text-slate-300">Sepia</button>
+                        <button data-filter="filter-grayscale" class="filter-btn p-2 rounded-lg bg-slate-800/60 border border-slate-700 text-xs font-medium text-slate-300">Mono B&W</button>
+                        <button data-filter="filter-vintage" class="filter-btn p-2 rounded-lg bg-slate-800/60 border border-slate-700 text-xs font-medium text-slate-300">Retro 70s</button>
+                        <button data-filter="filter-cyberpunk" class="filter-btn p-2 rounded-lg bg-slate-800/60 border border-slate-700 text-xs font-medium text-slate-300">Cyberpunk</button>
+                        <button data-filter="filter-soft" class="filter-btn p-2 rounded-lg bg-slate-800/60 border border-slate-700 text-xs font-medium text-slate-300">Soft Glow</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Gallery Cache -->
+            <div class="glass-panel p-5 rounded-2xl border border-slate-800">
+                <h3 class="text-xs font-bold font-mono uppercase tracking-wider text-slate-300 mb-3 flex items-center justify-between">
+                    <span>Recent Sequence Frame Cache</span>
+                    <span id="capturesCountBadge" class="text-[10px] bg-slate-800 px-2 py-0.5 rounded-full text-slate-400">0 Items</span>
+                </h3>
+                
+                <div id="thumbnailsContainer" class="flex items-center gap-3 overflow-x-auto pb-2 min-h-[90px]">
+                    <div class="text-xs text-slate-500 italic w-full text-center py-6 border border-dashed border-slate-800 rounded-xl">
+                        Captured photos will appear here
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- EXPORT MODAL WITH LIVE BORDER & COLOR CUSTOMIZATION -->
+    <div id="exportModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-5xl w-full my-auto p-5 sm:p-6 shadow-2xl flex flex-col gap-5 max-h-[95vh]">
+            
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3 flex-shrink-0">
+                <div>
+                    <h3 class="text-base sm:text-lg font-bold font-mono text-white">Your Photo Strip is Ready!</h3>
+                    <p class="text-xs text-slate-400">Customize border style & color live before saving or downloading.</p>
+                </div>
+                <button id="closeModalBtn" class="w-8 h-8 rounded-lg bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition-all">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start overflow-y-auto flex-1 pr-1">
+                <!-- PREVIEW CANVAS -->
+                <div class="lg:col-span-7 flex flex-col items-center justify-center bg-slate-950 p-4 rounded-xl border border-slate-800/80 w-full h-full min-h-[320px]">
+                    <canvas id="outputCanvas" class="max-w-full max-h-[55vh] w-auto h-auto rounded shadow-2xl object-contain block mx-auto"></canvas>
+                </div>
+
+                <!-- LIVE CUSTOMIZATION CONTROLS & ACTIONS -->
+                <div class="lg:col-span-5 flex flex-col gap-4">
+                    
+                    <!-- BORDER STYLE & COLOR CONTROLS -->
+                    <div class="bg-slate-950/80 p-4 rounded-xl border border-slate-800/80 space-y-3">
+                        <h4 class="text-xs font-bold font-mono uppercase tracking-wider text-brand-400 flex items-center gap-2">
+                            <i class="fa-solid fa-palette"></i> Customize Strip Style
+                        </h4>
+
+                        <!-- Frame/Border Style -->
+                        <div>
+                            <label class="text-[11px] font-semibold text-slate-400 block mb-1.5">Border Style</label>
+                            <div class="grid grid-cols-3 gap-1.5" id="modalFrameStyleSelector">
+                                <button data-style="classic" class="modal-frame-btn active p-2 rounded-lg bg-slate-800 border-2 border-brand-500 text-[11px] font-medium text-slate-200">Classic</button>
+                                <button data-style="rounded" class="modal-frame-btn p-2 rounded-lg bg-slate-800/60 border border-slate-700 text-[11px] font-medium text-slate-300">Rounded</button>
+                                <button data-style="polaroid" class="modal-frame-btn p-2 rounded-lg bg-slate-800/60 border border-slate-700 text-[11px] font-medium text-slate-300">Polaroid</button>
+                                <button data-style="double-border" class="modal-frame-btn p-2 rounded-lg bg-slate-800/60 border border-slate-700 text-[11px] font-medium text-slate-300">Double Line</button>
+                                <button data-style="retro-film" class="modal-frame-btn p-2 rounded-lg bg-slate-800/60 border border-slate-700 text-[11px] font-medium text-slate-300">Retro Film</button>
+                                <button data-style="minimal" class="modal-frame-btn p-2 rounded-lg bg-slate-800/60 border border-slate-700 text-[11px] font-medium text-slate-300">Borderless</button>
+                            </div>
+                        </div>
+
+                        <!-- Border Color Picker -->
+                        <div class="flex items-center justify-between pt-1">
+                            <label class="text-[11px] font-semibold text-slate-400">Border Background Color</label>
+                            <div class="flex items-center gap-2">
+                                <input type="color" id="modalFrameColorPicker" value="#ffffff" class="w-8 h-8 bg-transparent rounded cursor-pointer border-0">
+                                <span id="modalFrameHexCode" class="text-xs font-mono text-slate-300">#FFFFFF</span>
+                            </div>
+                        </div>
+
+                        <!-- Footer Text -->
+                        <div>
+                            <label class="text-[11px] font-semibold text-slate-400 block mb-1">Footer Text</label>
+                            <input type="text" id="modalFooterTextInput" value="StudioSnap • 2026 Event" placeholder="e.g. John & Sarah's Wedding" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 outline-none focus:ring-2 focus:ring-brand-500">
+                        </div>
+                    </div>
+
+                    <!-- ACTION BUTTONS -->
+                    <div class="space-y-2">
+                        <button id="saveToFolderBtn" class="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 transition-all">
+                            <i class="fa-solid fa-folder-arrow-down"></i> Confirm & Save All Files to Folder
+                        </button>
+
+                        <button id="downloadStripBtn" class="w-full py-2.5 px-4 bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-brand-600/20 transition-all">
+                            <i class="fa-solid fa-download"></i> Save High-Res Image (.PNG)
+                        </button>
+                        
+                        <button id="webShareBtn" class="w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 border border-slate-700 transition-all">
+                            <i class="fa-solid fa-share-nodes"></i> Share via Bluetooth / Mobile
+                        </button>
+                    </div>
+
+                    <!-- QR CODE GENERATOR -->
+                    <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800 flex flex-col items-center gap-2 text-center">
+                        <span class="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                            <i class="fa-solid fa-qrcode text-brand-400"></i> Scan to Download on Phone
+                        </span>
+                        <div id="qrcode" class="p-2 bg-white rounded-lg shadow-md flex items-center justify-center"></div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        let directoryHandle = null;
+        let pendingBlobsToSave = [];
+
+        function speakText(text) {
+            return new Promise((resolve) => {
+                if ('speechSynthesis' in window) {
+                    window.speechSynthesis.cancel();
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.lang = 'en-US';
+                    utterance.rate = 1.05;
+                    utterance.pitch = 1.0;
+                    utterance.onend = () => resolve();
+                    utterance.onerror = () => resolve();
+                    window.speechSynthesis.speak(utterance);
+                } else {
+                    resolve();
+                }
+            });
+        }
+
+        function playShutterSound() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const bufferSize = audioCtx.sampleRate * 0.1;
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+            const noise = audioCtx.createBufferSource();
+            noise.buffer = buffer;
+            const gain = audioCtx.createGain();
+            noise.connect(gain);
+            gain.connect(audioCtx.destination);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+            noise.start();
+        }
+
+        const state = {
+            stream: null,
+            isMirrored: true,
+            activeLayout: 'strip-3',
+            activeFilter: 'filter-normal',
+            activeFrameStyle: 'classic',
+            countdownDelay: 3,
+            capturedPhotos: [],
+            isCapturing: false,
+            frameColor: '#ffffff',
+            footerText: 'StudioSnap • 2026 Event'
+        };
+
+        const videoElement = document.getElementById('videoElement');
+        const cameraPlaceholder = document.getElementById('cameraPlaceholder');
+        const requestCamBtn = document.getElementById('requestCamBtn');
+        const cameraSelect = document.getElementById('cameraSelect');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const startCaptureBtn = document.getElementById('startCaptureBtn');
+        const mirrorToggleBtn = document.getElementById('mirrorToggleBtn');
+        const countdownOverlay = document.getElementById('countdownOverlay');
+        const countdownStatusText = document.getElementById('countdownStatusText');
+        const countdownNumber = document.getElementById('countdownNumber');
+        const flashLayer = document.getElementById('flashLayer');
+        const thumbnailsContainer = document.getElementById('thumbnailsContainer');
+        const capturesCountBadge = document.getElementById('capturesCountBadge');
+        const stripProgressText = document.getElementById('stripProgressText');
+        
+        const modalFrameColorPicker = document.getElementById('modalFrameColorPicker');
+        const modalFrameHexCode = document.getElementById('modalFrameHexCode');
+        const modalFooterTextInput = document.getElementById('modalFooterTextInput');
+
+        const outputCanvas = document.getElementById('outputCanvas');
+        const exportModal = document.getElementById('exportModal');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const downloadStripBtn = document.getElementById('downloadStripBtn');
+        const saveToFolderBtn = document.getElementById('saveToFolderBtn');
+        const webShareBtn = document.getElementById('webShareBtn');
+        const qrcodeContainer = document.getElementById('qrcode');
+        const selectFolderBtn = document.getElementById('selectFolderBtn');
+
+        window.onload = function() {
+            initCamera();
+            setupEventListeners();
+            updateProgressIndicator();
+        };
+
+        async function initCamera(deviceId = null) {
+            try {
+                if (state.stream) state.stream.getTracks().forEach(track => track.stop());
+
+                const constraints = {
+                    video: deviceId ? { deviceId: { exact: deviceId } } : { width: { ideal: 1920 }, height: { ideal: 1080 } },
+                    audio: false
+                };
+
+                state.stream = await navigator.mediaDevices.getUserMedia(constraints);
+                videoElement.srcObject = state.stream;
+                
+                statusDot.className = "w-2 h-2 rounded-full bg-emerald-500";
+                statusText.textContent = "Camera Ready";
+                cameraPlaceholder.classList.add('hidden');
+
+                await populateCameraDevices();
+            } catch (err) {
+                console.error("Camera access error:", err);
+                statusDot.className = "w-2 h-2 rounded-full bg-rose-500";
+                statusText.textContent = "Camera Disconnected";
+                cameraPlaceholder.classList.remove('hidden');
+            }
+        }
+
+        async function populateCameraDevices() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(d => d.kind === 'videoinput');
+                cameraSelect.innerHTML = '';
+                videoDevices.forEach((device, idx) => {
+                    const opt = document.createElement('option');
+                    opt.value = device.deviceId;
+                    opt.textContent = device.label || `Camera ${idx + 1}`;
+                    cameraSelect.appendChild(opt);
+                });
+            } catch (e) {
+                console.log("Error finding camera devices:", e);
+            }
+        }
+
+        function setupEventListeners() {
+            requestCamBtn.onclick = () => initCamera();
+            cameraSelect.onchange = (e) => initCamera(e.target.value);
+
+            selectFolderBtn.onclick = async () => {
+                if ('showDirectoryPicker' in window) {
+                    try {
+                        directoryHandle = await window.showDirectoryPicker();
+                        selectFolderBtn.classList.remove('bg-slate-800');
+                        selectFolderBtn.classList.add('bg-emerald-900/60', 'border-emerald-500', 'text-emerald-300');
+                    } catch (err) {
+                        console.log("Folder selection canceled", err);
+                    }
+                } else {
+                    alert("Your browser does not support local folder selection.");
+                }
+            };
+
+            mirrorToggleBtn.onclick = () => {
+                state.isMirrored = !state.isMirrored;
+                videoElement.style.transform = state.isMirrored ? 'scaleX(-1)' : 'scaleX(1)';
+            };
+
+            document.querySelectorAll('.timer-btn').forEach(btn => {
+                btn.onclick = () => {
+                    document.querySelectorAll('.timer-btn').forEach(b => {
+                        b.classList.remove('active', 'border-2', 'border-brand-500');
+                        b.classList.add('border', 'border-slate-700');
+                    });
+                    btn.classList.add('active', 'border-2', 'border-brand-500');
+                    state.countdownDelay = parseInt(btn.dataset.timer) || 3;
+                };
+            });
+
+            document.querySelectorAll('.layout-btn').forEach(btn => {
+                btn.onclick = () => {
+                    document.querySelectorAll('.layout-btn').forEach(b => {
+                        b.classList.remove('active', 'border-2', 'border-brand-500');
+                        b.classList.add('border', 'border-slate-700/60');
+                        const icon = b.querySelector('i');
+                        if (icon) icon.className = icon.className.replace('text-brand-400', 'text-slate-400');
+                    });
+                    
+                    btn.classList.add('active', 'border-2', 'border-brand-500');
+                    const activeIcon = btn.querySelector('i');
+                    if (activeIcon) activeIcon.className = activeIcon.className.replace('text-slate-400', 'text-brand-400');
+                    
+                    state.activeLayout = btn.dataset.layout;
+                    resetSession();
+                };
+            });
+
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.onclick = () => {
+                    document.querySelectorAll('.filter-btn').forEach(b => {
+                        b.classList.remove('active', 'border-2', 'border-brand-500');
+                        b.classList.add('border', 'border-slate-700');
+                    });
+                    btn.classList.add('active', 'border-2', 'border-brand-500');
+                    
+                    videoElement.className = videoElement.className.replace(/filter-\w+/g, '');
+                    state.activeFilter = btn.dataset.filter;
+                    videoElement.classList.add(state.activeFilter);
+                };
+            });
+
+            // MODAL LIVE CUSTOMIZATION LISTENERS
+            document.querySelectorAll('.modal-frame-btn').forEach(btn => {
+                btn.onclick = () => {
+                    document.querySelectorAll('.modal-frame-btn').forEach(b => {
+                        b.classList.remove('active', 'border-2', 'border-brand-500');
+                        b.classList.add('border', 'border-slate-700');
+                    });
+                    btn.classList.add('active', 'border-2', 'border-brand-500');
+                    state.activeFrameStyle = btn.dataset.style;
+                    renderFinalPhotostrip(); // Live re-render!
+                };
+            });
+
+            modalFrameColorPicker.oninput = (e) => {
+                state.frameColor = e.target.value;
+                modalFrameHexCode.textContent = e.target.value.toUpperCase();
+                renderFinalPhotostrip(); // Live re-render!
+            };
+
+            modalFooterTextInput.oninput = (e) => {
+                state.footerText = e.target.value;
+                renderFinalPhotostrip(); // Live re-render!
+            };
+
+            startCaptureBtn.onclick = startPhotoboothSequence;
+            document.getElementById('resetSessionBtn').onclick = resetSession;
+            closeModalBtn.onclick = () => exportModal.classList.add('hidden');
+            downloadStripBtn.onclick = downloadCanvasImage;
+            saveToFolderBtn.onclick = confirmAndSaveAllFiles;
+            webShareBtn.onclick = triggerWebShare;
+        }
+
+        function getTargetShotCount() {
+            if (state.activeLayout === 'single') return 1;
+            if (state.activeLayout === 'strip-3') return 3;
+            if (state.activeLayout === 'grid-4') return 4;
+            return 3;
+        }
+
+        function updateProgressIndicator() {
+            const required = getTargetShotCount();
+            stripProgressText.textContent = `${state.capturedPhotos.length} / ${required} SHOTS`;
+            capturesCountBadge.textContent = `${state.capturedPhotos.length} Items`;
+        }
+
+        async function startPhotoboothSequence() {
+            if (state.isCapturing) return;
+            state.isCapturing = true;
+            startCaptureBtn.disabled = true;
+            startCaptureBtn.classList.add('opacity-50');
+
+            const targetShots = getTargetShotCount();
+            state.capturedPhotos = [];
+            pendingBlobsToSave = [];
+            renderThumbnails();
+
+            for (let i = 0; i < targetShots; i++) {
+                await runCountdownSequence(state.countdownDelay);
+                triggerFlash();
+                await captureSingleFrame(i + 1);
+                updateProgressIndicator();
+                
+                if (i < targetShots - 1) {
+                    await new Promise(r => setTimeout(r, 1200));
+                }
+            }
+
+            await renderFinalPhotostrip();
+            
+            state.isCapturing = false;
+            startCaptureBtn.disabled = false;
+            startCaptureBtn.classList.remove('opacity-50');
+            exportModal.classList.remove('hidden');
+
+            if (directoryHandle) {
+                setTimeout(() => {
+                    confirmAndSaveAllFiles();
+                }, 300);
+            }
+        }
+
+        async function runCountdownSequence(seconds) {
+            countdownOverlay.classList.remove('hidden');
+            countdownStatusText.classList.remove('hidden');
+            countdownNumber.textContent = "";
+
+            await speakText("Get ready! We will take a capture now! In");
+
+            let count = seconds;
+            countdownNumber.textContent = count;
+            speakText(count.toString());
+
+            return new Promise((resolve) => {
+                const interval = setInterval(() => {
+                    count--;
+                    if (count > 0) {
+                        countdownNumber.textContent = count;
+                        speakText(count.toString());
+                    } else {
+                        clearInterval(interval);
+                        speakText("Smile!");
+                        countdownOverlay.classList.add('hidden');
+                        resolve();
+                    }
+                }, 1000);
+            });
+        }
+
+        function triggerFlash() {
+            playShutterSound();
+            flashLayer.classList.remove('animate-flash');
+            void flashLayer.offsetWidth;
+            flashLayer.classList.add('animate-flash');
+        }
+
+        async function captureSingleFrame(shotIndex) {
+            const canvas = document.createElement('canvas');
+            canvas.width = videoElement.videoWidth || 1280;
+            canvas.height = videoElement.videoHeight || 720;
+            const ctx = canvas.getContext('2d');
+
+            if (state.isMirrored) {
+                ctx.translate(canvas.width, 0);
+                ctx.scale(-1, 1);
+            }
+
+            ctx.filter = getCanvasFilterString(state.activeFilter);
+            ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+            state.capturedPhotos.push(dataUrl);
+            renderThumbnails();
+
+            canvas.toBlob((blob) => {
+                pendingBlobsToSave.push({
+                    blob: blob,
+                    fileName: `raw-shot-${Date.now()}-${shotIndex}.jpg`
+                });
+            }, 'image/jpeg', 0.92);
+        }
+
+        async function confirmAndSaveAllFiles() {
+            if (!directoryHandle) {
+                alert("Mangyaring i-click muna ang Folder Icon sa itaas para pumili ng Save Location.");
+                return;
+            }
+
+            const totalFiles = pendingBlobsToSave.length;
+            if (totalFiles === 0) {
+                alert("Walang bagong larawan na pwedeng i-save.");
+                return;
+            }
+
+            const confirmSave = confirm(`Gusto mo bang i-save ang lahat ng ${totalFiles} na file (raw shots at photo strip) sa iyongnapiling folder?`);
+
+            if (confirmSave) {
+                try {
+                    for (const item of pendingBlobsToSave) {
+                        const fileHandle = await directoryHandle.getFileHandle(item.fileName, { create: true });
+                        const writable = await fileHandle.createWritable();
+                        await writable.write(item.blob);
+                        await writable.close();
+                    }
+                    alert("Matagumpay na na-save ang lahat ng larawan!");
+                } catch (err) {
+                    console.error("Save error:", err);
+                    alert("Nagkaroon ng problema sa pag-save ng files.");
+                }
+            }
+        }
+
+        function getCanvasFilterString(filterClass) {
+            switch(filterClass) {
+                case 'filter-sepia': return 'sepia(0.85) contrast(1.1) brightness(0.95)';
+                case 'filter-grayscale': return 'grayscale(1) contrast(1.2) brightness(1.05)';
+                case 'filter-vintage': return 'sepia(0.35) contrast(1.15) saturate(1.3)';
+                case 'filter-cyberpunk': return 'saturate(2.2) hue-rotate(190deg)';
+                case 'filter-soft': return 'brightness(1.1) contrast(0.9) saturate(1.15)';
+                case 'filter-warm': return 'saturate(1.4) sepia(0.2) brightness(1.05)';
+                case 'filter-cool': return 'hue-rotate(30deg) saturate(1.2) brightness(1.02)';
+                case 'filter-invert': return 'invert(1)';
+                default: return 'none';
+            }
+        }
+
+        function renderThumbnails() {
+            thumbnailsContainer.innerHTML = '';
+            if (state.capturedPhotos.length === 0) {
+                thumbnailsContainer.innerHTML = `
+                    <div class="text-xs text-slate-500 italic w-full text-center py-6 border border-dashed border-slate-800 rounded-xl">
+                        Captured photos will appear here
+                    </div>`;
+                return;
+            }
+
+            state.capturedPhotos.forEach((src) => {
+                const img = document.createElement('img');
+                img.src = src;
+                img.className = "w-20 h-16 object-cover rounded-lg border border-slate-700 shadow-md flex-shrink-0";
+                thumbnailsContainer.appendChild(img);
+            });
+        }
+
+        function resetSession() {
+            state.capturedPhotos = [];
+            pendingBlobsToSave = [];
+            renderThumbnails();
+            updateProgressIndicator();
+        }
+
+        function drawRoundedImage(ctx, img, x, y, width, height, radius) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + width - radius, y);
+            ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+            ctx.lineTo(x + width, y + height - radius);
+            ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+            ctx.lineTo(x + radius, y + height);
+            ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+            ctx.lineTo(x, y + radius);
+            ctx.quadraticCurveTo(x, y, x + radius, y);
+            ctx.closePath();
+            ctx.clip();
+            ctx.drawImage(img, x, y, width, height);
+            ctx.restore();
+        }
+
+        async function renderFinalPhotostrip() {
+            const canvas = outputCanvas;
+            const ctx = canvas.getContext('2d');
+
+            const photos = state.capturedPhotos;
+            if (photos.length === 0) return;
+
+            const imgObjs = await Promise.all(photos.map(src => {
+                return new Promise((resolve) => {
+                    const img = new Image();
+                    img.onload = () => resolve(img);
+                    img.src = src;
+                });
+            }));
+
+            let borderPadding = 40;
+            let gap = 30;
+            let footerHeight = 120;
+            
+            if (state.activeFrameStyle === 'minimal') {
+                borderPadding = 15;
+                gap = 15;
+                footerHeight = 80;
+            } else if (state.activeFrameStyle === 'polaroid') {
+                borderPadding = 50;
+                gap = 40;
+                footerHeight = 150;
+            }
+
+            const singleW = 800;
+            const singleH = 600;
+
+            let gridCols = 1;
+            let gridRows = photos.length;
+
+            if (state.activeLayout === 'grid-4') {
+                gridCols = 2;
+                gridRows = 2;
+            } else if (state.activeLayout === 'single') {
+                gridCols = 1;
+                gridRows = 1;
+            }
+
+            canvas.width = (singleW * gridCols) + (gap * (gridCols - 1)) + (borderPadding * 2);
+            canvas.height = (singleH * gridRows) + (gap * (gridRows - 1)) + borderPadding + footerHeight;
+
+            ctx.fillStyle = state.frameColor;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            imgObjs.forEach((img, i) => {
+                const col = i % gridCols;
+                const row = Math.floor(i / gridCols);
+                const xPos = borderPadding + (col * (singleW + gap));
+                const yPos = borderPadding + (row * (singleH + gap));
+
+                if (state.activeFrameStyle === 'rounded') {
+                    drawRoundedImage(ctx, img, xPos, yPos, singleW, singleH, 30);
+                } else if (state.activeFrameStyle === 'polaroid') {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.shadowColor = 'rgba(0,0,0,0.15)';
+                    ctx.shadowBlur = 15;
+                    ctx.fillRect(xPos - 15, yPos - 15, singleW + 30, singleH + 30);
+                    ctx.shadowBlur = 0;
+                    ctx.drawImage(img, xPos, yPos, singleW, singleH);
+                } else if (state.activeFrameStyle === 'double-border') {
+                    ctx.drawImage(img, xPos, yPos, singleW, singleH);
+                    ctx.strokeStyle = isColorLight(state.frameColor) ? '#000000' : '#ffffff';
+                    ctx.lineWidth = 6;
+                    ctx.strokeRect(xPos - 10, yPos - 10, singleW + 20, singleH + 20);
+                } else if (state.activeFrameStyle === 'retro-film') {
+                    ctx.drawImage(img, xPos, yPos, singleW, singleH);
+                    ctx.fillStyle = '#000000';
+                    ctx.fillRect(xPos - 30, yPos + (singleH / 2) - 20, 15, 40);
+                    ctx.fillRect(xPos + singleW + 15, yPos + (singleH / 2) - 20, 15, 40);
+                } else {
+                    ctx.drawImage(img, xPos, yPos, singleW, singleH);
+                }
+            });
+
+            drawFooterText(ctx, canvas.width / 2, canvas.height - (footerHeight / 2));
+            generateQRCode(canvas.toDataURL('image/png'));
+
+            // Update pending blob list
+            canvas.toBlob((blob) => {
+                // I-update o palitan ang huling photostrip blob
+                const stripIndex = pendingBlobsToSave.findIndex(item => item.fileName.startsWith('photostrip-'));
+                const newStrip = {
+                    blob: blob,
+                    fileName: `photostrip-${Date.now()}.png`
+                };
+                if (stripIndex !== -1) {
+                    pendingBlobsToSave[stripIndex] = newStrip;
+                } else {
+                    pendingBlobsToSave.push(newStrip);
+                }
+            }, 'image/png');
+        }
+
+        function drawFooterText(ctx, x, y) {
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            const isLightBg = isColorLight(state.frameColor);
+            ctx.fillStyle = isLightBg ? '#0f172a' : '#ffffff';
+            
+            ctx.font = 'bold 32px "Space Grotesk", sans-serif';
+            ctx.fillText(state.footerText, x, y);
+        }
+
+        function isColorLight(hex) {
+            const color = hex.replace('#', '');
+            const r = parseInt(color.substr(0, 2), 16) || 255;
+            const g = parseInt(color.substr(2, 2), 16) || 255;
+            const b = parseInt(color.substr(4, 2), 16) || 255;
+            const brightness = ((r * 299) + (g * 587) + (b * 114)) / 1000;
+            return brightness > 155;
+        }
+
+        function generateQRCode(dataUrl) {
+            qrcodeContainer.innerHTML = '';
+            new QRCode(qrcodeContainer, {
+                text: window.location.href,
+                width: 100,
+                height: 100,
+                colorDark : "#0f172a",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.H
+            });
+        }
+
+        function downloadCanvasImage() {
+            const link = document.createElement('a');
+            link.download = `photobooth-strip-${Date.now()}.png`;
+            link.href = outputCanvas.toDataURL('image/png');
+            link.click();
+        }
+
+        async function triggerWebShare() {
+            try {
+                outputCanvas.toBlob(async (blob) => {
+                    const file = new File([blob], 'photostrip.png', { type: 'image/png' });
+                    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                        await navigator.share({
+                            files: [file],
+                            title: 'My Photo Booth Strip',
+                            text: 'Check out my photo strip!'
+                        });
+                    } else {
+                        downloadCanvasImage();
+                    }
+                }, 'image/png');
+            } catch (err) {
+                console.log("Web share error:", err);
+            }
+        }
+    </script>
+</body>
+</html>
